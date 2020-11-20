@@ -113,6 +113,7 @@ var (
 	resultTouched   = []byte("TOUCHED\r\n")
 
 	resultClientErrorPrefix = []byte("CLIENT_ERROR ")
+	versionPrefix           = []byte("VERSION")
 )
 
 // New returns a memcache client using the provided server(s)
@@ -778,4 +779,34 @@ func (c *Client) incrDecr(ctx context.Context, verb, key string, delta uint64) (
 		return nil
 	})
 	return val, err
+}
+
+// Ping checks all instances if they are alive. Returns error if any
+// of them is down.
+func (c *Client) Ping(ctx context.Context) error {
+	return c.selector.Each(ctx, c.ping)
+}
+
+// ping sends the version command to the given addr
+func (c *Client) ping(ctx context.Context, addr net.Addr) error {
+	return c.withAddrRw(ctx, addr, func(rw *bufio.ReadWriter) error {
+		if _, err := fmt.Fprintf(rw, "version\r\n"); err != nil {
+			return err
+		}
+		if err := rw.Flush(); err != nil {
+			return err
+		}
+		line, err := rw.ReadSlice('\n')
+		if err != nil {
+			return err
+		}
+
+		switch {
+		case bytes.HasPrefix(line, versionPrefix):
+			break
+		default:
+			return fmt.Errorf("memcache: unexpected response line from ping: %q", string(line))
+		}
+		return nil
+	})
 }
